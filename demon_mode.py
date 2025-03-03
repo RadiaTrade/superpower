@@ -28,10 +28,10 @@ def calculate_momentum(symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=100):
 
 def detect_anomaly(scores, window=20):
     if len(scores) < window:
-        return 0.05, -0.05  # Lowered for testnet
+        return 0.002, -0.002  # Lowered for testnet
     mean, std = np.mean(scores[-window:]), np.std(scores[-window:])
     z = (scores[-1] - mean) / std if std > 0 else 0
-    return (0.1, -0.1) if abs(z) > 2 else (0.05, -0.05)  # Lowered for testnet
+    return (0.005, -0.005) if abs(z) > 2 else (0.002, -0.002)  # Lowered for testnet
 
 def get_symbol_filters(symbol):
     try:
