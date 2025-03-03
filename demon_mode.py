@@ -10,9 +10,16 @@ from scipy.stats import linregress
 # Binance API Keys (testnet)
 API_KEY = "FEf8x3XU32Hd3a923iT3erconZrmhW77dfXKdpfjMAjpBmW8Ckmv6Fz3RSnVe2Yr"
 SECRET_KEY = "LJyOthF5Ohvq24QcVpujHGymjjpRttyn4b6C65qiDOSVNBJNsawAAfdqClQ3un1N"
-
 client = Client(API_KEY, SECRET_KEY, testnet=True)
 
+# Mock news check (placeholder for real API later)
+def check_news(symbol):
+    if symbol == "BTCUSDT" and random.random() < 0.1:  # 10% chance of "crash"
+        print(f"🚨 News Alert: Binance hack rumor detected for {symbol}")
+        return "crash"
+    return "normal"
+
+# Calculate momentum using Binance klines
 def calculate_momentum(symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=100):
     try:
         klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
@@ -21,18 +28,20 @@ def calculate_momentum(symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=100):
             print(f"⚠️ Insufficient data for {symbol}")
             return 0
         slope, _ = linregress(range(len(closes)), closes)[:2]
-        return slope / closes[-1]
+        return slope / closes[-1]  # Normalize by latest price
     except Exception as e:
         print(f"⚠️ Momentum error for {symbol}: {e}")
         return 0
 
+# Anomaly detection for buy/sell thresholds
 def detect_anomaly(scores, window=20):
     if len(scores) < window:
-        return 0.002, -0.002  # Lowered for testnet
+        return 0.002, -0.002  # Lowered for testnet trades
     mean, std = np.mean(scores[-window:]), np.std(scores[-window:])
     z = (scores[-1] - mean) / std if std > 0 else 0
-    return (0.005, -0.005) if abs(z) > 2 else (0.002, -0.002)  # Lowered for testnet
+    return (0.005, -0.005) if abs(z) > 2 else (0.002, -0.002)
 
+# Fetch symbol filters to adjust quantities
 def get_symbol_filters(symbol):
     try:
         info = client.get_symbol_info(symbol)
@@ -46,6 +55,7 @@ def get_symbol_filters(symbol):
         print(f"❌ Error fetching filters for {symbol}: {e}")
         return None
 
+# Adjust quantity to meet Binance filters
 def adjust_quantity(symbol, qty, price):
     filters = get_symbol_filters(symbol)
     if not filters:
@@ -53,18 +63,16 @@ def adjust_quantity(symbol, qty, price):
     step_size = filters['step_size']
     min_qty = filters['min_qty']
     min_notional = filters['min_notional']
-    
     precision = int(round(-math.log10(step_size)))
     qty = round(qty - (qty % step_size), precision)
-    
     if qty < min_qty:
         qty = min_qty
     if qty * price < min_notional:
         qty = min_notional / price
         qty = round(qty - (qty % step_size), precision)
-    
     return qty
 
+# Place a market order
 def place_order(symbol, side, qty):
     try:
         order = client.create_order(
@@ -79,6 +87,7 @@ def place_order(symbol, side, qty):
         print(f"❌ Error placing {side} order for {symbol}: {e}")
         return None
 
+# Fetch account balances
 def get_balances():
     try:
         account = client.get_account()
@@ -88,6 +97,7 @@ def get_balances():
         print(f"❌ Error fetching balances: {e}")
         return {}
 
+# Main trading loop
 def demon_mode_trade():
     print("🔥 Demon Mode activated on Binance Testnet!")
     symbols = ["ETHBTC", "BTCUSDT", "BNBUSDT"]
@@ -110,16 +120,22 @@ def demon_mode_trade():
             print(f"📈 {symbol}: Score={score:.3f}, Price={price}")
             
             buy_threshold, sell_threshold = detect_anomaly(scores_history[symbol])
+            news_event = check_news(symbol)
             base_asset = symbol[:-4] if symbol.endswith("USDT") else symbol[:-3]
             quote_asset = "USDT" if symbol.endswith("USDT") else "BTC"
             
-            if score > buy_threshold:
-                qty = 0.01 * balances.get(quote_asset, 0) / price  # 1% of quote
+            if news_event == "crash":  # Sell on crash news
+                qty = 0.8 * balances.get(base_asset, 0)
+                qty = adjust_quantity(symbol, qty, price)
+                if qty and balances.get(base_asset, 0) >= qty:
+                    place_order(symbol, SIDE_SELL, qty)
+            elif score > buy_threshold:
+                qty = 0.01 * balances.get(quote_asset, 0) / price  # 1% of quote asset
                 qty = adjust_quantity(symbol, qty, price)
                 if qty and balances.get(quote_asset, 0) >= qty * price:
                     place_order(symbol, SIDE_BUY, qty)
             elif score < sell_threshold:
-                qty = 0.8 * balances.get(base_asset, 0)
+                qty = 0.8 * balances.get(base_asset, 0)  # 80% of base asset
                 qty = adjust_quantity(symbol, qty, price)
                 if qty and balances.get(base_asset, 0) >= qty:
                     place_order(symbol, SIDE_SELL, qty)
