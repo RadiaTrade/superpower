@@ -3,7 +3,7 @@ import time
 import random
 import math
 import numpy as np
-import pandas as pd  # Added for EMA
+import pandas as pd
 from binance.client import Client
 from binance.enums import ORDER_TYPE_MARKET, SIDE_BUY, SIDE_SELL
 from scipy.stats import linregress
@@ -90,7 +90,7 @@ learner = TradeLearner()
 tracker = TradeTracker()
 
 def calculate_ema(data, period):
-    return pd.Series(data).ewm(span=period, adjust=False).mean()  # Fixed: Pandas EMA
+    return pd.Series(data).ewm(span=period, adjust=False).mean().to_numpy()  # Convert back to NumPy
 
 def get_x_sentiment(symbol):
     posts = [f"{symbol.split('USDT')[0] if 'USDT' in symbol else symbol} to the moon!", f"Dumping {symbol} hard rn", f"{symbol} steady as hell"]
@@ -120,19 +120,21 @@ def calculate_rsi(symbol, period=14):
     try:
         klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=period+1)
         closes = np.array([float(k[4]) for k in klines])
+        if len(closes) < period + 1:
+            raise ValueError(f"Not enough data for RSI ({len(closes)} < {period+1})")
         deltas = np.diff(closes)
         gains = np.maximum(deltas, 0)
         losses = np.abs(np.minimum(deltas, 0))
         avg_gain = calculate_ema(gains, period)[-1]
         avg_loss = calculate_ema(losses, period)[-1]
-        rs = avg_gain / avg_loss if avg_loss != 0 else 0
-        rsi = 100 - (100 / (1 + rs))
+        rs = avg_gain / avg_loss if avg_loss != 0 else float('inf')
+        rsi = 100 - (100 / (1 + rs)) if rs != float('inf') else 100
         sentiment = get_x_sentiment(symbol)
         rsi_adj = rsi * (1 + sentiment * 0.5) if abs(sentiment) > 0.5 else rsi
         print(f"📊 RSI for {symbol}: {rsi_adj:.2f} (base {rsi:.2f})")
         return rsi_adj
     except Exception as e:
-        print(f"❌ RSI error for {symbol}: {e}")
+        print(f"❌ RSI error for {symbol}: {str(e)}")
         return 50
 
 def calculate_moving_average(symbol, period=50):
@@ -164,13 +166,14 @@ def calculate_macd(symbol, fast_period=12, slow_period=26, signal_period=9):
     try:
         klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=slow_period + signal_period)
         closes = np.array([float(k[4]) for k in klines])
+        if len(closes) < slow_period + signal_period:
+            raise ValueError(f"Not enough data for MACD ({len(closes)} < {slow_period + signal_period})")
         ema_fast = calculate_ema(closes, fast_period)[-1]
         ema_slow = calculate_ema(closes, slow_period)[-1]
         macd_line = ema_fast - ema_slow
-        # Compute MACD values over the full period, then EMA for signal
         macd_values = [calculate_ema(closes[:i+fast_period], fast_period)[-1] - 
                        calculate_ema(closes[:i+slow_period], slow_period)[-1] 
-                       for i in range(len(closes)-slow_period, len(closes))]
+                       for i in range(len(closes)-slow_period-signal_period+1, len(closes))]
         signal_line = calculate_ema(macd_values, signal_period)[-1]
         learner.macd_history[symbol].append((macd_line, signal_line))
         if len(learner.macd_history[symbol]) > 2:
@@ -178,7 +181,7 @@ def calculate_macd(symbol, fast_period=12, slow_period=26, signal_period=9):
         print(f"📊 MACD for {symbol}: MACD={macd_line:.4f}, Signal={signal_line:.4f}")
         return macd_line, signal_line
     except Exception as e:
-        print(f"❌ MACD error for {symbol}: {e}")
+        print(f"❌ MACD error for {symbol}: {str(e)}")
         return 0, 0
 
 def detect_breakout(symbol, limit=100):
