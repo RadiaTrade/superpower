@@ -7,6 +7,7 @@ from binance.client import Client
 from binance.enums import ORDER_TYPE_MARKET, SIDE_BUY, SIDE_SELL
 from scipy.stats import linregress
 
+# Binance API keys (replace with your own)
 API_KEY = "FEf8x3XU32Hd3a923iT3erconZrmhW77dfXKdpfjMAjpBmW8Ckmv6Fz3RSnVe2Yr"
 SECRET_KEY = "LJyOthF5Ohvq24QcVpujHGymjjpRttyn4b6C65qiDOSVNBJNsawAAfdqClQ3un1N"
 client = Client(API_KEY, SECRET_KEY, testnet=True)
@@ -26,7 +27,7 @@ class TradeLearner:
         self.total_losses = 0
         self.loss_window = []
         self.sentiment_history = {sym: [] for sym in symbols}
-        self.macd_history = {sym: [] for sym in symbols}  # Fixed: symbols in scope
+        self.macd_history = {sym: [] for sym in symbols}
 
     def update(self, symbol, side, qty, price):
         current_time = time.time()
@@ -90,7 +91,7 @@ learner = TradeLearner()
 tracker = TradeTracker()
 
 def calculate_ema(data, period):
-    return np.array(data).ewm(span=period, adjust=False).mean()  # Fixed: Proper EMA
+    return np.array(data).ewm(span=period, adjust=False).mean()
 
 def get_x_sentiment(symbol):
     posts = [f"{symbol.split('USDT')[0] if 'USDT' in symbol else symbol} to the moon!", f"Dumping {symbol} hard rn", f"{symbol} steady as hell"]
@@ -123,7 +124,7 @@ def calculate_rsi(symbol, period=14):
         deltas = np.diff(closes)
         gains = np.maximum(deltas, 0)
         losses = np.abs(np.minimum(deltas, 0))
-        avg_gain = calculate_ema(gains, period)[-1]  # Fixed: EMA for RSI
+        avg_gain = calculate_ema(gains, period)[-1]
         avg_loss = calculate_ema(losses, period)[-1]
         rs = avg_gain / avg_loss if avg_loss != 0 else 0
         rsi = 100 - (100 / (1 + rs))
@@ -164,13 +165,10 @@ def calculate_macd(symbol, fast_period=12, slow_period=26, signal_period=9):
     try:
         klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=slow_period + signal_period)
         closes = np.array([float(k[4]) for k in klines])
-        ema_fast = calculate_ema(closes, fast_period)[-1]  # Fixed: Proper EMA
+        ema_fast = calculate_ema(closes, fast_period)[-1]
         ema_slow = calculate_ema(closes, slow_period)[-1]
         macd_line = ema_fast - ema_slow
-        macd_values = [calculate_ema(closes[:i+fast_period], fast_period)[-1] - 
-                       calculate_ema(closes[:i+slow_period], slow_period)[-1] 
-                       for i in range(len(closes)-slow_period, len(closes))]
-        signal_line = calculate_ema(np.array(macd_values), signal_period)[-1]
+        signal_line = calculate_ema(np.array([macd_line]), signal_period)[-1]
         learner.macd_history[symbol].append((macd_line, signal_line))
         if len(learner.macd_history[symbol]) > 2:
             learner.macd_history[symbol].pop(0)
@@ -216,7 +214,7 @@ def adjust_quantity(symbol, qty, price):
     min_qty = filters['min_qty']
     min_notional = filters['min_notional']
     precision = int(round(-math.log10(step_size)))
-    qty = max(min_qty, qty)  # Fixed: Ensure >= min_qty
+    qty = max(min_qty, qty)
     if qty * price < min_notional:
         qty = min_notional / price
     qty = round(qty - (qty % step_size), precision)
@@ -248,7 +246,7 @@ def place_order(symbol, side, qty):
         return order, price
     except Exception as e:
         print(f"❌ Error placing {side} order for {symbol}: {e}")
-        return None, None  # Fixed: Consistent return on error
+        return None, None
 
 def get_balances():
     try:
@@ -329,33 +327,4 @@ def demon_mode_trade():
             base_asset = symbol[:-4] if symbol.endswith("USDT") else symbol[:-3]
             quote_asset = "USDT" if symbol.endswith("USDT") else "BTC"
             atr_factor = max(1, atr / price)
-            leverage = min(2.5, 1 + (learner.win_streak[symbol] * 0.1)) if learner.win_streak[symbol] >= 5 else max(0.5, 1 - (learner.loss_streak[symbol] * 0.1)) if learner.loss_streak[symbol] >= 3 else 1
-            ma_slope = (ma50 - np.mean([float(k[4]) for k in client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=51)[:-1]])) / 50 if ma50 else 0
-            leverage_cap = 2.5 if ma_slope > 0 else 1.5
-            leverage = min(leverage_cap, leverage)
-            size_factor = 2 if sentiment > 0.9 else 0.25 if sentiment < -0.9 else 1
-            trade_freq = min(1, atr / price)
-            
-            if dom_score > buy_threshold and rsi < 70 and not pump_risk and (sentiment > 0.5 or sentiment < -0.5 or macd_cross > 0) and random.random() < trade_freq:
-                qty = (0.05 * balances.get(quote_asset, 0) / price) * (1 / atr_factor) * leverage * size_factor
-                qty = adjust_quantity(symbol, qty, price)
-                quote_price = price if quote_asset == "USDT" else price * float(client.get_symbol_ticker(symbol="BTCUSDT")['price'])
-                if qty and balances.get(quote_asset, 0) >= qty * price and qty * quote_price >= 10:
-                    order, exec_price = place_order(symbol, SIDE_BUY, qty)
-                    if order:
-                        learner.update(symbol, SIDE_BUY, qty, exec_price)
-                        tracker.update(symbol, SIDE_BUY, qty, exec_price)
-            elif (dom_score < sell_threshold or rsi > 70 or macd_cross < 0) and balances.get(base_asset, 0) > 0.001 and random.random() < trade_freq:
-                qty = balances.get(base_asset, 0)  # Sell full position
-                qty = adjust_quantity(symbol, qty, price)
-                quote_price = price if quote_asset == "USDT" else price * float(client.get_symbol_ticker(symbol="BTCUSDT")['price'])
-                if qty and balances.get(base_asset, 0) >= qty and qty * quote_price >= 10:
-                    order, exec_price = place_order(symbol, SIDE_SELL, qty)
-                    if order:
-                        learner.update(symbol, SIDE_SELL, qty, exec_price)
-                        tracker.update(symbol, SIDE_SELL, qty, exec_price)
-        
-        time.sleep(random.randint(5, 10))
-
-if __name__ == "__main__":
-    demon_mode_trade()
+            leverage = min(2.5, 1 + (learner.win_streak[symbol] * 0.1)) if learner.win_streak[symbol] >= 5 else max(0.5, 1 - (learner.loss_st
