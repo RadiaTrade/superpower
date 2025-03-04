@@ -19,8 +19,12 @@ class TradeLearner:
         self.last_prices = {}
         self.win_streak = {sym: 0 for sym in ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]}
         self.loss_streak = {sym: 0 for sym in ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]}
+        self.last_trade_time = {sym: 0 for sym in ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]}
+        self.total_losses = 0
+        self.loss_window = []
 
     def update(self, symbol, side, qty, price):
+        current_time = time.time()
         if side == SIDE_SELL and symbol in self.last_prices:
             profit = (price - self.last_prices[symbol]) * qty
             self.trade_count[symbol] += 1
@@ -31,8 +35,12 @@ class TradeLearner:
             else:
                 self.loss_streak[symbol] += 1
                 self.win_streak[symbol] = 0
+                self.total_losses += 1
+                self.loss_window.append(current_time)
+            self.loss_window = [t for t in self.loss_window if current_time - t < 3600]  # 1-hour window
         if side == SIDE_BUY:
             self.last_prices[symbol] = price
+        self.last_trade_time[symbol] = current_time
         return self.base_threshold * (1 + self.success_rate[symbol] - 0.5)
 
 class TradeTracker:
@@ -68,7 +76,7 @@ learner = TradeLearner()
 tracker = TradeTracker()
 
 def get_x_sentiment(symbol):
-    # Placeholder—live Tweepy + VADER coming with creds
+    # Placeholder—live Tweepy + VADER with creds
     posts = [f"{symbol.split('USDT')[0] if 'USDT' in symbol else symbol} to the moon!", f"Dumping {symbol} hard rn", f"{symbol} steady as hell"]
     sentiment_score = sum(1 if "moon" in p.lower() else -1 if "dump" in p.lower() else 0 for p in posts)
     sentiment = sentiment_score / max(len(posts), 1)
@@ -98,7 +106,7 @@ def calculate_rsi(symbol, period=14):
         rs = gain / loss if loss != 0 else 0
         rsi = 100 - (100 / (1 + rs))
         sentiment = get_x_sentiment(symbol)
-        rsi_adj = rsi * (1 + sentiment * 0.5)  # Sentiment multiplier
+        rsi_adj = rsi * (1 + sentiment * 0.5)
         print(f"📊 RSI for {symbol}: {rsi_adj:.2f} (base {rsi:.2f})")
         return rsi_adj
     except Exception as e:
@@ -121,7 +129,7 @@ def calculate_atr(symbol, period=14):
         klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=period+1)
         highs = np.array([float(k[2]) for k in klines])
         lows = np.array([float(k[3]) for k in klines])
-        closes = np.array([float(k[4]) for k in klines])
+        closes = [float(k[4]) for k in klines]
         tr = np.maximum(highs[1:], closes[:-1]) - np.minimum(lows[1:], closes[:-1])
         atr = np.mean(tr)
         print(f"📈 ATR for {symbol}: {atr:.4f}")
@@ -219,6 +227,12 @@ def demon_mode_trade():
         print(f"💰 Balances: {', '.join(f'{k}={v:.6f}' for k, v in balances.items())}")
         print(f"💸 Total P/L: {tracker.get_pl():.2f} USDT")
         
+        if len(learner.loss_window) >= 5:
+            print("⚠️ Failsafe triggered—5 losses in 1 hour, pausing for 5 mins!")
+            time.sleep(300)
+            learner.loss_window = []
+            continue
+        
         for symbol in symbols:
             try:
                 ticker = client.get_symbol_ticker(symbol=symbol)
@@ -258,13 +272,14 @@ def demon_mode_trade():
             base_asset = symbol[:-4] if symbol.endswith("USDT") else symbol[:-3]
             quote_asset = "USDT" if symbol.endswith("USDT") else "BTC"
             atr_factor = max(1, atr / price)
-            leverage = min(2, 1 + (learner.win_streak[symbol] * 0.1)) if learner.win_streak[symbol] >= 5 else max(0.5, 1 - (learner.loss_streak[symbol] * 0.1)) if learner.loss_streak[symbol] >= 3 else 1
+            leverage = min(2.5, 1 + (learner.win_streak[symbol] * 0.1)) if learner.win_streak[symbol] >= 5 else max(0.5, 1 - (learner.loss_streak[symbol] * 0.1)) if learner.loss_streak[symbol] >= 3 else 1
             ma_slope = (ma50 - np.mean([float(k[4]) for k in client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=51)[:-1]])) / 50 if ma50 else 0
             leverage_cap = 2.5 if ma_slope > 0 else 1.5
             leverage = min(leverage_cap, leverage)
+            size_factor = 2 if sentiment > 0.9 else 0.25 if sentiment < -0.9 else 1
             
             if dom_score > buy_threshold and rsi < 70 and not pump_risk and (sentiment > 0.5 or sentiment < -0.5):
-                qty = (0.05 * balances.get(quote_asset, 0) / price) * (1 / atr_factor) * leverage
+                qty = (0.05 * balances.get(quote_asset, 0) / price) * (1 / atr_factor) * leverage * size_factor
                 qty = adjust_quantity(symbol, qty, price)
                 quote_price = price if quote_asset == "USDT" else price * float(client.get_symbol_ticker(symbol="BTCUSDT")['price'])
                 if qty and balances.get(quote_asset, 0) >= qty * price and qty * quote_price >= 10:
@@ -273,7 +288,7 @@ def demon_mode_trade():
                         learner.update(symbol, SIDE_BUY, qty, exec_price)
                         tracker.update(symbol, SIDE_BUY, qty, exec_price)
             elif (dom_score < sell_threshold or rsi > 70) and balances.get(base_asset, 0) > 0.001:
-                qty = min(0.8 * balances.get(base_asset, 0), balances.get(base_asset, 0)) * (1 / atr_factor) * leverage
+                qty = min(0.8 * balances.get(base_asset, 0), balances.get(base_asset, 0)) * (1 / atr_factor) * leverage * size_factor
                 qty = adjust_quantity(symbol, qty, price)
                 quote_price = price if quote_asset == "USDT" else price * float(client.get_symbol_ticker(symbol="BTCUSDT")['price'])
                 if qty and balances.get(base_asset, 0) >= qty and qty * quote_price >= 10:
