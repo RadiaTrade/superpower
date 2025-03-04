@@ -327,4 +327,4 @@ def demon_mode_trade():
             base_asset = symbol[:-4] if symbol.endswith("USDT") else symbol[:-3]
             quote_asset = "USDT" if symbol.endswith("USDT") else "BTC"
             atr_factor = max(1, atr / price)
-            leverage = min(2.5, 1 + (learner.win_streak[symbol] * 0.1)) if learner.win_streak[symbol] >= 5 else max(0.5, 1 - (learner.loss_st
+            leverage = min(2.5, 1 + (learner.win_streak[symbol] * 0.1)) if learner.win_streak[symbol] >= 5 else max(0.5, 1 - (learner.loss_st)
