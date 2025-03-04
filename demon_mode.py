@@ -159,9 +159,10 @@ def calculate_macd(symbol, fast_period=12, slow_period=26, signal_period=9):
         ema_fast = np.mean(closes[-fast_period:])  # Simple EMA proxy
         ema_slow = np.mean(closes[-slow_period:])
         macd_line = ema_fast - ema_slow
-        signal_line = np.mean([ema_fast - ema_slow for ema_fast, ema_slow in 
-                               zip([np.mean(closes[i:i+fast_period]) for i in range(-slow_period, 0)],
-                                   [np.mean(closes[i:i+slow_period]) for i in range(-slow_period, 0))])[-signal_period:])
+        # Calculate signal line as average of last signal_period MACD values
+        macd_values = [np.mean(closes[i:i+fast_period]) - np.mean(closes[i:i+slow_period]) 
+                       for i in range(-slow_period-signal_period+1, 1)]
+        signal_line = np.mean(macd_values[-signal_period:])
         learner.macd_history[symbol].append((macd_line, signal_line))
         if len(learner.macd_history[symbol]) > 2:
             learner.macd_history[symbol].pop(0)
