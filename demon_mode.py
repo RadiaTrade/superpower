@@ -15,7 +15,7 @@ class TradeLearner:
     def __init__(self):
         self.success_rate = 0
         self.trade_count = 0
-        self.base_threshold = 0.00005  # Lowered for more buys
+        self.base_threshold = 0.00005
 
     def update(self, profit):
         self.trade_count += 1
@@ -152,7 +152,7 @@ def get_balances():
 
 def demon_mode_trade():
     print("🔥 Demon Mode activated on Binance Testnet!")
-    symbols = ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT"]  # More symbols
+    symbols = ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT"]
     scores_history = {symbol: [] for symbol in symbols}
     
     while True:
@@ -198,11 +198,11 @@ def demon_mode_trade():
             quote_asset = "USDT" if symbol.endswith("USDT") else "BTC"
             
             if dom_score > buy_threshold and rsi < 70 and not pump_risk:
-                qty = 0.05 * balances.get(quote_asset, 0) / price  # Bigger buys
+                qty = 0.05 * balances.get(quote_asset, 0) / price
                 qty = adjust_quantity(symbol, qty, price)
                 if qty and balances.get(quote_asset, 0) >= qty * price:
                     place_order(symbol, SIDE_BUY, qty)
-            elif dom_score < sell_threshold or rsi > 80:
+            elif (dom_score < sell_threshold or rsi > 80) and balances.get(base_asset, 0) > 0.1:  # Min balance check
                 qty = 0.8 * balances.get(base_asset, 0)
                 qty = adjust_quantity(symbol, qty, price)
                 if qty and balances.get(base_asset, 0) >= qty:
