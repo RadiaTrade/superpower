@@ -68,6 +68,7 @@ learner = TradeLearner()
 tracker = TradeTracker()
 
 def get_x_sentiment(symbol):
+    # Placeholder—live Tweepy + VADER coming with creds
     posts = [f"{symbol.split('USDT')[0] if 'USDT' in symbol else symbol} to the moon!", f"Dumping {symbol} hard rn", f"{symbol} steady as hell"]
     sentiment_score = sum(1 if "moon" in p.lower() else -1 if "dump" in p.lower() else 0 for p in posts)
     sentiment = sentiment_score / max(len(posts), 1)
@@ -96,8 +97,10 @@ def calculate_rsi(symbol, period=14):
         loss = -np.mean(deltas * (deltas < 0))
         rs = gain / loss if loss != 0 else 0
         rsi = 100 - (100 / (1 + rs))
-        print(f"📊 RSI for {symbol}: {rsi:.2f}")
-        return rsi
+        sentiment = get_x_sentiment(symbol)
+        rsi_adj = rsi * (1 + sentiment * 0.5)  # Sentiment multiplier
+        print(f"📊 RSI for {symbol}: {rsi_adj:.2f} (base {rsi:.2f})")
+        return rsi_adj
     except Exception as e:
         print(f"❌ RSI error for {symbol}: {e}")
         return 50
@@ -256,8 +259,11 @@ def demon_mode_trade():
             quote_asset = "USDT" if symbol.endswith("USDT") else "BTC"
             atr_factor = max(1, atr / price)
             leverage = min(2, 1 + (learner.win_streak[symbol] * 0.1)) if learner.win_streak[symbol] >= 5 else max(0.5, 1 - (learner.loss_streak[symbol] * 0.1)) if learner.loss_streak[symbol] >= 3 else 1
+            ma_slope = (ma50 - np.mean([float(k[4]) for k in client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=51)[:-1]])) / 50 if ma50 else 0
+            leverage_cap = 2.5 if ma_slope > 0 else 1.5
+            leverage = min(leverage_cap, leverage)
             
-            if dom_score > buy_threshold and rsi < 70 and not pump_risk:
+            if dom_score > buy_threshold and rsi < 70 and not pump_risk and (sentiment > 0.5 or sentiment < -0.5):
                 qty = (0.05 * balances.get(quote_asset, 0) / price) * (1 / atr_factor) * leverage
                 qty = adjust_quantity(symbol, qty, price)
                 quote_price = price if quote_asset == "USDT" else price * float(client.get_symbol_ticker(symbol="BTCUSDT")['price'])
