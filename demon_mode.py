@@ -16,16 +16,26 @@ class TradeLearner:
         self.success_rate = 0
         self.trade_count = 0
         self.base_threshold = 0.00005
+        self.last_prices = {}
 
-    def update(self, profit):
-        self.trade_count += 1
-        self.success_rate = (self.success_rate * (self.trade_count - 1) + (1 if profit > 0 else 0)) / self.trade_count
+    def update(self, symbol, side, qty, price):
+        if side == SIDE_SELL and symbol in self.last_prices:
+            profit = (price - self.last_prices[symbol]) * qty
+            self.trade_count += 1
+            self.success_rate = (self.success_rate * (self.trade_count - 1) + (1 if profit > 0 else 0)) / self.trade_count
+        if side == SIDE_BUY:
+            self.last_prices[symbol] = price
         return self.base_threshold * (1 + self.success_rate - 0.5)
 
 learner = TradeLearner()
 
 def get_x_sentiment(symbol):
-    posts = ["BTC moon!", "ETH dumping", "BNB steady"]
+    # Mocked X posts - replace with real fetch later
+    posts = [
+        f"{symbol.split('USDT')[0] if 'USDT' in symbol else symbol} to the moon!",
+        f"Dumping {symbol} hard rn",
+        f"{symbol} steady as hell"
+    ]
     sentiment_score = sum(1 if "moon" in p.lower() else -1 if "dump" in p.lower() else 0 for p in posts)
     sentiment = sentiment_score / max(len(posts), 1)
     print(f"🗣️ X Sentiment for {symbol}: {sentiment:.2f}")
@@ -117,98 +127,4 @@ def adjust_quantity(symbol, qty, price):
 def get_symbol_filters(symbol):
     try:
         info = client.get_symbol_info(symbol)
-        filters = {f['filterType']: f for f in info['filters']}
-        return {
-            'min_qty': float(filters['LOT_SIZE']['minQty']),
-            'step_size': float(filters['LOT_SIZE']['stepSize']),
-            'min_notional': float(filters['NOTIONAL']['minNotional'])
-        }
-    except Exception as e:
-        print(f"❌ Error fetching filters for {symbol}: {e}")
-        return None
-
-def place_order(symbol, side, qty):
-    try:
-        order = client.create_order(
-            symbol=symbol,
-            side=side,
-            type=ORDER_TYPE_MARKET,
-            quantity=qty
-        )
-        print(f"✅ {side} {qty} {symbol} @ market price")
-        return order
-    except Exception as e:
-        print(f"❌ Error placing {side} order for {symbol}: {e}")
-        return None
-
-def get_balances():
-    try:
-        account = client.get_account()
-        balances = {b['asset']: float(b['free']) for b in account['balances'] if float(b['free']) > 0}
-        return balances
-    except Exception as e:
-        print(f"❌ Error fetching balances: {e}")
-        return {}
-
-def demon_mode_trade():
-    print("🔥 Demon Mode activated on Binance Testnet!")
-    symbols = ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT"]
-    scores_history = {symbol: [] for symbol in symbols}
-    
-    while True:
-        balances = get_balances()
-        print(f"💰 Balances: {', '.join(f'{k}={v:.6f}' for k, v in balances.items())}")
-        
-        for symbol in symbols:
-            try:
-                ticker = client.get_symbol_ticker(symbol=symbol)
-                price = float(ticker['price'])
-            except Exception as e:
-                print(f"❌ Error fetching price for {symbol}: {e}")
-                continue
-            
-            momentum = calculate_momentum(symbol)
-            rsi = calculate_rsi(symbol)
-            sentiment = get_x_sentiment(symbol)
-            ma50 = calculate_moving_average(symbol)
-            breakout = detect_breakout(symbol)
-            volume_spike = detect_volume_spike(symbol)
-            
-            value_factor = 1 if ma50 and price < ma50 else -1 if ma50 and price > ma50 else 0
-            pump_risk = 1 if volume_spike and rsi > 80 and momentum < 0 else 0
-            z_score = (momentum - np.mean(scores_history[symbol][-20:])) / np.std(scores_history[symbol][-20:]) if scores_history[symbol] and np.std(scores_history[symbol][-20:]) > 0 else 0
-            
-            dom_score = (
-                0.3 * momentum +
-                0.2 * (rsi - 50) / 50 +
-                0.2 * sentiment +
-                0.2 * breakout +
-                0.1 * value_factor
-            ) * (1 if abs(z_score) > 1 else 0.5)
-            
-            if pump_risk:
-                dom_score -= 1
-            
-            scores_history[symbol].append(dom_score)
-            print(f"💥 {symbol}: Dom Score={dom_score:.3f}, Price={price}")
-            
-            buy_threshold = learner.update(0)
-            sell_threshold = -buy_threshold
-            base_asset = symbol[:-4] if symbol.endswith("USDT") else symbol[:-3]
-            quote_asset = "USDT" if symbol.endswith("USDT") else "BTC"
-            
-            if dom_score > buy_threshold and rsi < 70 and not pump_risk:
-                qty = 0.05 * balances.get(quote_asset, 0) / price
-                qty = adjust_quantity(symbol, qty, price)
-                if qty and balances.get(quote_asset, 0) >= qty * price:
-                    place_order(symbol, SIDE_BUY, qty)
-            elif (dom_score < sell_threshold or rsi > 80) and balances.get(base_asset, 0) > 0.1:  # Min balance check
-                qty = 0.8 * balances.get(base_asset, 0)
-                qty = adjust_quantity(symbol, qty, price)
-                if qty and balances.get(base_asset, 0) >= qty:
-                    place_order(symbol, SIDE_SELL, qty)
-        
-        time.sleep(random.randint(5, 10))
-
-if __name__ == "__main__":
-    demon_mode_trade()
+        filters 
