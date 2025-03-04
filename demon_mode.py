@@ -32,7 +32,7 @@ def calculate_momentum(symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=100):
 
 def detect_anomaly(scores, window=20):
     if len(scores) < window:
-        return 0.002, -0.001  # Buy threshold raised to 0.002
+        return 0.002, -0.001
     mean, std = np.mean(scores[-window:]), np.std(scores[-window:])
     z = (scores[-1] - mean) / std if std > 0 else 0
     return (0.005, -0.005) if abs(z) > 2 else (0.002, -0.001)
