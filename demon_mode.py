@@ -22,6 +22,7 @@ class TradeLearner:
         self.last_trade_time = {sym: 0 for sym in ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]}
         self.total_losses = 0
         self.loss_window = []
+        self.sentiment_history = {sym: [] for sym in ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]}
 
     def update(self, symbol, side, qty, price):
         current_time = time.time()
@@ -80,8 +81,12 @@ def get_x_sentiment(symbol):
     posts = [f"{symbol.split('USDT')[0] if 'USDT' in symbol else symbol} to the moon!", f"Dumping {symbol} hard rn", f"{symbol} steady as hell"]
     sentiment_score = sum(1 if "moon" in p.lower() else -1 if "dump" in p.lower() else 0 for p in posts)
     sentiment = sentiment_score / max(len(posts), 1)
-    print(f"🗣️ X Sentiment for {symbol}: {sentiment:.2f}")
-    return sentiment
+    learner.sentiment_history[symbol].append(sentiment)
+    if len(learner.sentiment_history[symbol]) > 5:
+        learner.sentiment_history[symbol].pop(0)
+    smoothed_sentiment = np.mean(learner.sentiment_history[symbol]) if learner.sentiment_history[symbol] else sentiment
+    print(f"🗣️ X Sentiment for {symbol}: {smoothed_sentiment:.2f} (raw {sentiment:.2f})")
+    return smoothed_sentiment
 
 def calculate_momentum(symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=100):
     try:
@@ -106,7 +111,7 @@ def calculate_rsi(symbol, period=14):
         rs = gain / loss if loss != 0 else 0
         rsi = 100 - (100 / (1 + rs))
         sentiment = get_x_sentiment(symbol)
-        rsi_adj = rsi * (1 + sentiment * 0.5)
+        rsi_adj = rsi * (1 + sentiment * 0.5) if abs(sentiment) > 0.5 else rsi
         print(f"📊 RSI for {symbol}: {rsi_adj:.2f} (base {rsi:.2f})")
         return rsi_adj
     except Exception as e:
@@ -129,7 +134,7 @@ def calculate_atr(symbol, period=14):
         klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=period+1)
         highs = np.array([float(k[2]) for k in klines])
         lows = np.array([float(k[3]) for k in klines])
-        closes = [float(k[4]) for k in klines]
+        closes = np.array([float(k[4]) for k in klines])
         tr = np.maximum(highs[1:], closes[:-1]) - np.minimum(lows[1:], closes[:-1])
         atr = np.mean(tr)
         print(f"📈 ATR for {symbol}: {atr:.4f}")
@@ -277,8 +282,9 @@ def demon_mode_trade():
             leverage_cap = 2.5 if ma_slope > 0 else 1.5
             leverage = min(leverage_cap, leverage)
             size_factor = 2 if sentiment > 0.9 else 0.25 if sentiment < -0.9 else 1
+            trade_freq = min(1, atr / price)  # Slow in low vol
             
-            if dom_score > buy_threshold and rsi < 70 and not pump_risk and (sentiment > 0.5 or sentiment < -0.5):
+            if dom_score > buy_threshold and rsi < 70 and not pump_risk and (sentiment > 0.5 or sentiment < -0.5) and random.random() < trade_freq:
                 qty = (0.05 * balances.get(quote_asset, 0) / price) * (1 / atr_factor) * leverage * size_factor
                 qty = adjust_quantity(symbol, qty, price)
                 quote_price = price if quote_asset == "USDT" else price * float(client.get_symbol_ticker(symbol="BTCUSDT")['price'])
@@ -287,7 +293,7 @@ def demon_mode_trade():
                     if order:
                         learner.update(symbol, SIDE_BUY, qty, exec_price)
                         tracker.update(symbol, SIDE_BUY, qty, exec_price)
-            elif (dom_score < sell_threshold or rsi > 70) and balances.get(base_asset, 0) > 0.001:
+            elif (dom_score < sell_threshold or rsi > 70) and balances.get(base_asset, 0) > 0.001 and random.random() < trade_freq:
                 qty = min(0.8 * balances.get(base_asset, 0), balances.get(base_asset, 0)) * (1 / atr_factor) * leverage * size_factor
                 qty = adjust_quantity(symbol, qty, price)
                 quote_price = price if quote_asset == "USDT" else price * float(client.get_symbol_ticker(symbol="BTCUSDT")['price'])
