@@ -155,12 +155,10 @@ def adjust_quantity(symbol, qty, price):
     min_qty = filters['min_qty']
     min_notional = filters['min_notional']
     precision = int(round(-math.log10(step_size)))
-    qty = round(qty - (qty % step_size), precision)
-    if qty < min_qty:
-        qty = min_qty
+    qty = max(min_qty, qty)  # Ensure at least min_qty
     if qty * price < min_notional:
         qty = min_notional / price
-        qty = round(qty - (qty % step_size), precision)
+    qty = round(qty - (qty % step_size), precision)  # Clean step
     return qty
 
 def get_symbol_filters(symbol):
@@ -253,7 +251,8 @@ def demon_mode_trade():
             if dom_score > buy_threshold and rsi < 70 and not pump_risk:
                 qty = (0.05 * balances.get(quote_asset, 0) / price) * (1 / atr_factor)
                 qty = adjust_quantity(symbol, qty, price)
-                if qty and balances.get(quote_asset, 0) >= qty * price:
+                quote_price = price if quote_asset == "USDT" else price * float(client.get_symbol_ticker(symbol="BTCUSDT")['price'])
+                if qty and balances.get(quote_asset, 0) >= qty * price and qty * quote_price >= 10:
                     order, exec_price = place_order(symbol, SIDE_BUY, qty)
                     if order:
                         learner.update(symbol, SIDE_BUY, qty, exec_price)
