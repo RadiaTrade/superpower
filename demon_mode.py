@@ -1,50 +1,47 @@
+from flask import Flask, request, render_template
+from github import Github
+import subprocess
 import os
-import time
-import random
-import math
-import numpy as np
-from binance.client import Client
-from binance.enums import ORDER_TYPE_MARKET, SIDE_BUY, SIDE_SELL
-from scipy.stats import linregress
+import threading
 
-API_KEY = "FEf8x3XU32Hd3a923iT3erconZrmhW77dfXKdpfjMAjpBmW8Ckmv6Fz3RSnVe2Yr"
-SECRET_KEY = "LJyOthF5Ohvq24QcVpujHGymjjpRttyn4b6C65qiDOSVNBJNsawAAfdqClQ3un1N"
-client = Client(API_KEY, SECRET_KEY, testnet=True)
+app = Flask(__name__)
 
-def check_news(symbol):
-    if symbol == "BTCUSDT" and random.random() < 0.1:
-        print(f"🚨 News Alert: Binance hack rumor for {symbol}")
-        return "crash"
-    return "normal"
+GITHUB_TOKEN = "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"
+REPO_NAME = "RadiaTrade/superpower"
+g = Github(GITHUB_TOKEN)
+repo = g.get_repo(REPO_NAME)
+SCRIPT_PATH = "/home/brabg11/demon_mode.py"
 
-def calculate_momentum(symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=100):
-    try:
-        klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
-        closes = [float(k[4]) for k in klines]
-        if len(closes) < 2:
-            print(f"⚠️ Insufficient data for {symbol}")
-            return 0
-        slope, _ = linregress(range(len(closes)), closes)[:2]
-        return slope / closes[-1]
-    except Exception as e:
-        print(f"⚠️ Momentum error for {symbol}: {e}")
-        return 0
+process = None
 
-def detect_anomaly(scores, window=20):
-    if len(scores) < window:
-        return 0.001, -0.001  # Lowered for testnet trades
-    mean, std = np.mean(scores[-window:]), np.std(scores[-window:])
-    z = (scores[-1] - mean) / std if std > 0 else 0
-    return (0.005, -0.005) if abs(z) > 2 else (0.001, -0.001)  # Lowered for testnet
+def run_script():
+    global process
+    process = subprocess.Popen(
+        ["/home/brabg11/alpaca_env/bin/python3", SCRIPT_PATH],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
+    stdout, stderr = process.communicate()
+    return stdout, stderr
 
-def get_symbol_filters(symbol):
-    try:
-        info = client.get_symbol_info(symbol)
-        filters = {f['filterType']: f for f in info['filters']}
-        return {
-            'min_qty': float(filters['LOT_SIZE']['minQty']),
-            'step_size': float(filters['LOT_SIZE']['stepSize']),
-            'min_notional': float(filters['NOTIONAL']['minNotional'])
-        }
-    except Exception as e:
-        print(f"❌ Error fetchin
+def get_current_code():
+    file = repo.get_contents("demon_mode.py")
+    return file.decoded_content.decode()
+
+@app.route("/", methods=["GET", "POST"])
+def index():
+    global process
+    if request.method == "POST":
+        new_code = request.form["code"]
+        file = repo.get_contents("demon_mode.py")
+        repo.update_file(file.path, "AI tweak", new_code, file.sha, branch="main")
+        with open(SCRIPT_PATH, "w") as f:
+            f.write(new_code)
+        if process:
+            process.terminate()
+        threading.Thread(target=run_script, daemon=True).start()
+        return render_template("index.html", code=new_code, output="Started trading!", error="")
+    code = get_current_code()
+    return render_template("index.html", code=code)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
