@@ -38,7 +38,7 @@ class TradeLearner:
                 self.win_streak[symbol] = 0
                 self.total_losses += 1
                 self.loss_window.append(current_time)
-            self.loss_window = [t for t in self.loss_window if current_time - t < 3600]  # 1-hour window
+            self.loss_window = [t for t in self.loss_window if current_time - t < 3600]
         if side == SIDE_BUY:
             self.last_prices[symbol] = price
         self.last_trade_time[symbol] = current_time
@@ -46,29 +46,38 @@ class TradeLearner:
 
 class TradeTracker:
     def __init__(self):
-        self.total_pl = 0
-        self.positions = {}
+        self.total_pl = 0  # Total realized P/L in USDT
+        self.positions = {}  # {symbol: {qty, cost_basis_usdt}}
 
     def update(self, symbol, side, qty, price):
         quote = "USDT" if symbol.endswith("USDT") else "BTC"
         usd_price = price if quote == "USDT" else price * float(client.get_symbol_ticker(symbol="BTCUSDT")['price'])
+        
         if side == SIDE_BUY:
             if symbol in self.positions:
                 old_qty = self.positions[symbol]['qty']
-                old_price = self.positions[symbol]['avg_price']
+                old_cost = self.positions[symbol]['cost_basis_usdt']
                 new_qty = old_qty + qty
-                new_avg_price = (old_price * old_qty + usd_price * qty) / new_qty
-                self.positions[symbol] = {'qty': new_qty, 'avg_price': new_avg_price}
+                new_cost = old_cost + (qty * usd_price)
+                self.positions[symbol] = {'qty': new_qty, 'cost_basis_usdt': new_cost}
             else:
-                self.positions[symbol] = {'qty': qty, 'avg_price': usd_price}
+                self.positions[symbol] = {'qty': qty, 'cost_basis_usdt': qty * usd_price}
+            print(f"📈 Buy {qty} {symbol} @ {usd_price:.2f} USD - Cost basis: {self.positions[symbol]['cost_basis_usdt']:.2f} USDT")
+        
         elif side == SIDE_SELL and symbol in self.positions:
             if self.positions[symbol]['qty'] >= qty:
-                buy_price = self.positions[symbol]['avg_price']
-                profit = (usd_price - buy_price) * qty
+                old_qty = self.positions[symbol]['qty']
+                old_cost = self.positions[symbol]['cost_basis_usdt']
+                avg_buy_price = old_cost / old_qty
+                profit = (usd_price - avg_buy_price) * qty
                 self.total_pl += profit
-                self.positions[symbol]['qty'] -= qty
-                if self.positions[symbol]['qty'] <= 0:
+                new_qty = old_qty - qty
+                new_cost = old_cost - (avg_buy_price * qty)
+                if new_qty > 0:
+                    self.positions[symbol] = {'qty': new_qty, 'cost_basis_usdt': new_cost}
+                else:
                     del self.positions[symbol]
+                print(f"📉 Sell {qty} {symbol} @ {usd_price:.2f} USD - Profit: {profit:.2f} USDT, Total P/L: {self.total_pl:.2f} USDT")
 
     def get_pl(self):
         return self.total_pl
@@ -77,7 +86,6 @@ learner = TradeLearner()
 tracker = TradeTracker()
 
 def get_x_sentiment(symbol):
-    # Placeholder—live Tweepy + VADER with creds
     posts = [f"{symbol.split('USDT')[0] if 'USDT' in symbol else symbol} to the moon!", f"Dumping {symbol} hard rn", f"{symbol} steady as hell"]
     sentiment_score = sum(1 if "moon" in p.lower() else -1 if "dump" in p.lower() else 0 for p in posts)
     sentiment = sentiment_score / max(len(posts), 1)
@@ -282,7 +290,7 @@ def demon_mode_trade():
             leverage_cap = 2.5 if ma_slope > 0 else 1.5
             leverage = min(leverage_cap, leverage)
             size_factor = 2 if sentiment > 0.9 else 0.25 if sentiment < -0.9 else 1
-            trade_freq = min(1, atr / price)  # Slow in low vol
+            trade_freq = min(1, atr / price)
             
             if dom_score > buy_threshold and rsi < 70 and not pump_risk and (sentiment > 0.5 or sentiment < -0.5) and random.random() < trade_freq:
                 qty = (0.05 * balances.get(quote_asset, 0) / price) * (1 / atr_factor) * leverage * size_factor
