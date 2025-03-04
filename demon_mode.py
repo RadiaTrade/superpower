@@ -11,19 +11,22 @@ API_KEY = "FEf8x3XU32Hd3a923iT3erconZrmhW77dfXKdpfjMAjpBmW8Ckmv6Fz3RSnVe2Yr"
 SECRET_KEY = "LJyOthF5Ohvq24QcVpujHGymjjpRttyn4b6C65qiDOSVNBJNsawAAfdqClQ3un1N"
 client = Client(API_KEY, SECRET_KEY, testnet=True)
 
+# Define symbols globally
+symbols = ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]
+
 class TradeLearner:
     def __init__(self):
-        self.success_rate = {sym: 0 for sym in ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]}
-        self.trade_count = {sym: 0 for sym in ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]}
+        self.success_rate = {sym: 0 for sym in symbols}
+        self.trade_count = {sym: 0 for sym in symbols}
         self.base_threshold = 0.00005
         self.last_prices = {}
-        self.win_streak = {sym: 0 for sym in ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]}
-        self.loss_streak = {sym: 0 for sym in ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]}
-        self.last_trade_time = {sym: 0 for sym in ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]}
+        self.win_streak = {sym: 0 for sym in symbols}
+        self.loss_streak = {sym: 0 for sym in symbols}
+        self.last_trade_time = {sym: 0 for sym in symbols}
         self.total_losses = 0
         self.loss_window = []
-        self.sentiment_history = {sym: [] for sym in ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]}
-        self.macd_history = {sym: [] for sym in symbols}  # Store MACD history
+        self.sentiment_history = {sym: [] for sym in symbols}
+        self.macd_history = {sym: [] for sym in symbols}  # Fixed: symbols in scope
 
     def update(self, symbol, side, qty, price):
         current_time = time.time()
@@ -86,6 +89,9 @@ class TradeTracker:
 learner = TradeLearner()
 tracker = TradeTracker()
 
+def calculate_ema(data, period):
+    return np.array(data).ewm(span=period, adjust=False).mean()  # Fixed: Proper EMA
+
 def get_x_sentiment(symbol):
     posts = [f"{symbol.split('USDT')[0] if 'USDT' in symbol else symbol} to the moon!", f"Dumping {symbol} hard rn", f"{symbol} steady as hell"]
     sentiment_score = sum(1 if "moon" in p.lower() else -1 if "dump" in p.lower() else 0 for p in posts)
@@ -115,9 +121,11 @@ def calculate_rsi(symbol, period=14):
         klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=period+1)
         closes = np.array([float(k[4]) for k in klines])
         deltas = np.diff(closes)
-        gain = np.mean(deltas * (deltas > 0))
-        loss = -np.mean(deltas * (deltas < 0))
-        rs = gain / loss if loss != 0 else 0
+        gains = np.maximum(deltas, 0)
+        losses = np.abs(np.minimum(deltas, 0))
+        avg_gain = calculate_ema(gains, period)[-1]  # Fixed: EMA for RSI
+        avg_loss = calculate_ema(losses, period)[-1]
+        rs = avg_gain / avg_loss if avg_loss != 0 else 0
         rsi = 100 - (100 / (1 + rs))
         sentiment = get_x_sentiment(symbol)
         rsi_adj = rsi * (1 + sentiment * 0.5) if abs(sentiment) > 0.5 else rsi
@@ -156,13 +164,13 @@ def calculate_macd(symbol, fast_period=12, slow_period=26, signal_period=9):
     try:
         klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=slow_period + signal_period)
         closes = np.array([float(k[4]) for k in klines])
-        ema_fast = np.mean(closes[-fast_period:])  # Simple EMA proxy
-        ema_slow = np.mean(closes[-slow_period:])
+        ema_fast = calculate_ema(closes, fast_period)[-1]  # Fixed: Proper EMA
+        ema_slow = calculate_ema(closes, slow_period)[-1]
         macd_line = ema_fast - ema_slow
-        # Calculate signal line as average of last signal_period MACD values
-        macd_values = [np.mean(closes[i:i+fast_period]) - np.mean(closes[i:i+slow_period]) 
-                       for i in range(-slow_period-signal_period+1, 1)]
-        signal_line = np.mean(macd_values[-signal_period:])
+        macd_values = [calculate_ema(closes[:i+fast_period], fast_period)[-1] - 
+                       calculate_ema(closes[:i+slow_period], slow_period)[-1] 
+                       for i in range(len(closes)-slow_period, len(closes))]
+        signal_line = calculate_ema(np.array(macd_values), signal_period)[-1]
         learner.macd_history[symbol].append((macd_line, signal_line))
         if len(learner.macd_history[symbol]) > 2:
             learner.macd_history[symbol].pop(0)
@@ -208,7 +216,7 @@ def adjust_quantity(symbol, qty, price):
     min_qty = filters['min_qty']
     min_notional = filters['min_notional']
     precision = int(round(-math.log10(step_size)))
-    qty = max(min_qty, qty)
+    qty = max(min_qty, qty)  # Fixed: Ensure >= min_qty
     if qty * price < min_notional:
         qty = min_notional / price
     qty = round(qty - (qty % step_size), precision)
@@ -240,7 +248,7 @@ def place_order(symbol, side, qty):
         return order, price
     except Exception as e:
         print(f"❌ Error placing {side} order for {symbol}: {e}")
-        return None, None
+        return None, None  # Fixed: Consistent return on error
 
 def get_balances():
     try:
@@ -251,16 +259,23 @@ def get_balances():
         print(f"❌ Error fetching balances: {e}")
         return {}
 
-symbols = ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]
-
 def demon_mode_trade():
     print("🔥 Demon Mode activated on Binance Testnet!")
     scores_history = {symbol: [] for symbol in symbols}
     
     while True:
-        balances = get_balances()
-        print(f"💰 Balances: {', '.join(f'{k}={v:.6f}' for k, v in balances.items())}")
-        print(f"💸 Total P/L: {tracker.get_pl():.2f} USDT")
+        try:
+            balances = get_balances()
+            if not balances:
+                print("⚠️ Failed to fetch balances, retrying in 10 seconds...")
+                time.sleep(10)
+                continue
+            print(f"💰 Balances: {', '.join(f'{k}={v:.6f}' for k, v in balances.items())}")
+            print(f"💸 Total P/L: {tracker.get_pl():.2f} USDT")
+        except Exception as e:
+            print(f"❌ Error in demon_mode_trade: {e}")
+            time.sleep(10)
+            continue
         
         if len(learner.loss_window) >= 5:
             print("⚠️ Failsafe triggered—5 losses in 1 hour, pausing for 5 mins!")
@@ -300,7 +315,7 @@ def demon_mode_trade():
                 0.2 * sentiment +
                 0.2 * breakout +
                 0.1 * value_factor +
-                0.1 * macd_cross  # MACD crossover impact
+                0.1 * macd_cross
             ) * (1 if abs(z_score) > 1 else 0.5)
             
             if pump_risk:
