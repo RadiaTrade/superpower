@@ -27,10 +27,41 @@ class TradeLearner:
             self.last_prices[symbol] = price
         return self.base_threshold * (1 + self.success_rate - 0.5)
 
+class TradeTracker:
+    def __init__(self):
+        self.total_pl = 0  # Total profit/loss in USDT
+        self.positions = {}  # Tracks open positions: {symbol: {qty, avg_price}}
+
+    def update(self, symbol, side, qty, price):
+        quote = "USDT" if symbol.endswith("USDT") else "BTC"
+        base = symbol[:-4] if symbol.endswith("USDT") else symbol[:-3]
+        usd_price = price if quote == "USDT" else price * float(client.get_symbol_ticker(symbol="BTCUSDT")['price'])
+
+        if side == SIDE_BUY:
+            if symbol in self.positions:
+                old_qty = self.positions[symbol]['qty']
+                old_price = self.positions[symbol]['avg_price']
+                new_qty = old_qty + qty
+                new_avg_price = (old_price * old_qty + usd_price * qty) / new_qty
+                self.positions[symbol] = {'qty': new_qty, 'avg_price': new_avg_price}
+            else:
+                self.positions[symbol] = {'qty': qty, 'avg_price': usd_price}
+        elif side == SIDE_SELL:
+            if symbol in self.positions and self.positions[symbol]['qty'] >= qty:
+                buy_price = self.positions[symbol]['avg_price']
+                profit = (usd_price - buy_price) * qty
+                self.total_pl += profit
+                self.positions[symbol]['qty'] -= qty
+                if self.positions[symbol]['qty'] <= 0:
+                    del self.positions[symbol]
+
+    def get_pl(self):
+        return self.total_pl
+
 learner = TradeLearner()
+tracker = TradeTracker()
 
 def get_x_sentiment(symbol):
-    # Mocked X posts - replace with real fetch later
     posts = [
         f"{symbol.split('USDT')[0] if 'USDT' in symbol else symbol} to the moon!",
         f"Dumping {symbol} hard rn",
@@ -127,4 +158,106 @@ def adjust_quantity(symbol, qty, price):
 def get_symbol_filters(symbol):
     try:
         info = client.get_symbol_info(symbol)
-        filters 
+        filters = {f['filterType']: f for f in info['filters']}
+        return {
+            'min_qty': float(filters['LOT_SIZE']['minQty']),
+            'step_size': float(filters['LOT_SIZE']['stepSize']),
+            'min_notional': float(filters['NOTIONAL']['minNotional'])
+        }
+    except Exception as e:
+        print(f"❌ Error fetching filters for {symbol}: {e}")
+        return None
+
+def place_order(symbol, side, qty):
+    try:
+        order = client.create_order(
+            symbol=symbol,
+            side=side,
+            type=ORDER_TYPE_MARKET,
+            quantity=qty
+        )
+        price = float(client.get_symbol_ticker(symbol=symbol)['price'])
+        print(f"✅ {side} {qty} {symbol} @ market price (~{price})")
+        return order, price
+    except Exception as e:
+        print(f"❌ Error placing {side} order for {symbol}: {e}")
+        return None, None
+
+def get_balances():
+    try:
+        account = client.get_account()
+        balances = {b['asset']: float(b['free']) for b in account['balances'] if float(b['free']) > 0}
+        return balances
+    except Exception as e:
+        print(f"❌ Error fetching balances: {e}")
+        return {}
+
+def demon_mode_trade():
+    print("🔥 Demon Mode activated on Binance Testnet!")
+    symbols = ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]
+    scores_history = {symbol: [] for symbol in symbols}
+    
+    while True:
+        balances = get_balances()
+        print(f"💰 Balances: {', '.join(f'{k}={v:.6f}' for k, v in balances.items())}")
+        print(f"💸 Total P/L: {tracker.get_pl():.2f} USDT")
+        
+        for symbol in symbols:
+            try:
+                ticker = client.get_symbol_ticker(symbol=symbol)
+                price = float(ticker['price'])
+            except Exception as e:
+                print(f"❌ Error fetching price for {symbol}: {e}")
+                continue
+            
+            momentum = calculate_momentum(symbol)
+            rsi = calculate_rsi(symbol)
+            sentiment = get_x_sentiment(symbol)
+            ma50 = calculate_moving_average(symbol)
+            breakout = detect_breakout(symbol)
+            volume_spike = detect_volume_spike(symbol)
+            
+            value_factor = 1 if ma50 and price < ma50 else -1 if ma50 and price > ma50 else 0
+            pump_risk = 1 if volume_spike and rsi > 80 and momentum < 0 else 0
+            z_score = (momentum - np.mean(scores_history[symbol][-20:])) / np.std(scores_history[symbol][-20:]) if scores_history[symbol] and np.std(scores_history[symbol][-20:]) > 0 else 0
+            
+            dom_score = (
+                0.3 * momentum +
+                0.2 * (rsi - 50) / 50 +
+                0.2 * sentiment +
+                0.2 * breakout +
+                0.1 * value_factor
+            ) * (1 if abs(z_score) > 1 else 0.5)
+            
+            if pump_risk:
+                dom_score -= 1
+            
+            scores_history[symbol].append(dom_score)
+            print(f"💥 {symbol}: Dom Score={dom_score:.3f}, Price={price}")
+            
+            buy_threshold = learner.update(symbol, SIDE_BUY, 0, price)
+            sell_threshold = -buy_threshold
+            base_asset = symbol[:-4] if symbol.endswith("USDT") else symbol[:-3]
+            quote_asset = "USDT" if symbol.endswith("USDT") else "BTC"
+            
+            if dom_score > buy_threshold and rsi < 70 and not pump_risk:
+                qty = 0.05 * balances.get(quote_asset, 0) / price
+                qty = adjust_quantity(symbol, qty, price)
+                if qty and balances.get(quote_asset, 0) >= qty * price:
+                    order, exec_price = place_order(symbol, SIDE_BUY, qty)
+                    if order:
+                        learner.update(symbol, SIDE_BUY, qty, exec_price)
+                        tracker.update(symbol, SIDE_BUY, qty, exec_price)
+            elif (dom_score < sell_threshold or rsi > 75) and balances.get(base_asset, 0) > 0.001:
+                qty = min(0.8 * balances.get(base_asset, 0), balances.get(base_asset, 0))
+                qty = adjust_quantity(symbol, qty, price)
+                if qty and balances.get(base_asset, 0) >= qty:
+                    order, exec_price = place_order(symbol, SIDE_SELL, qty)
+                    if order:
+                        learner.update(symbol, SIDE_SELL, qty, exec_price)
+                        tracker.update(symbol, SIDE_SELL, qty, exec_price)
+        
+        time.sleep(random.randint(5, 10))
+
+if __name__ == "__main__":
+    demon_mode_trade()
