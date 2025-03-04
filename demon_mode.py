@@ -13,19 +13,27 @@ client = Client(API_KEY, SECRET_KEY, testnet=True)
 
 class TradeLearner:
     def __init__(self):
-        self.success_rate = 0
-        self.trade_count = 0
+        self.success_rate = {sym: 0 for sym in ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]}
+        self.trade_count = {sym: 0 for sym in ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]}
         self.base_threshold = 0.00005
         self.last_prices = {}
+        self.win_streak = {sym: 0 for sym in ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]}
+        self.loss_streak = {sym: 0 for sym in ["ETHBTC", "BTCUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"]}
 
     def update(self, symbol, side, qty, price):
         if side == SIDE_SELL and symbol in self.last_prices:
             profit = (price - self.last_prices[symbol]) * qty
-            self.trade_count += 1
-            self.success_rate = (self.success_rate * (self.trade_count - 1) + (1 if profit > 0 else 0)) / self.trade_count
+            self.trade_count[symbol] += 1
+            self.success_rate[symbol] = (self.success_rate[symbol] * (self.trade_count[symbol] - 1) + (1 if profit > 0 else 0)) / self.trade_count[symbol]
+            if profit > 0:
+                self.win_streak[symbol] += 1
+                self.loss_streak[symbol] = 0
+            else:
+                self.loss_streak[symbol] += 1
+                self.win_streak[symbol] = 0
         if side == SIDE_BUY:
             self.last_prices[symbol] = price
-        return self.base_threshold * (1 + self.success_rate - 0.5)
+        return self.base_threshold * (1 + self.success_rate[symbol] - 0.5)
 
 class TradeTracker:
     def __init__(self):
@@ -155,10 +163,10 @@ def adjust_quantity(symbol, qty, price):
     min_qty = filters['min_qty']
     min_notional = filters['min_notional']
     precision = int(round(-math.log10(step_size)))
-    qty = max(min_qty, qty)  # Ensure at least min_qty
+    qty = max(min_qty, qty)
     if qty * price < min_notional:
         qty = min_notional / price
-    qty = round(qty - (qty % step_size), precision)  # Clean step
+    qty = round(qty - (qty % step_size), precision)
     return qty
 
 def get_symbol_filters(symbol):
@@ -246,10 +254,11 @@ def demon_mode_trade():
             sell_threshold = -buy_threshold
             base_asset = symbol[:-4] if symbol.endswith("USDT") else symbol[:-3]
             quote_asset = "USDT" if symbol.endswith("USDT") else "BTC"
-            atr_factor = max(1, atr / price)  # Normalize ATR
+            atr_factor = max(1, atr / price)
+            leverage = min(2, 1 + (learner.win_streak[symbol] * 0.1)) if learner.win_streak[symbol] >= 5 else max(0.5, 1 - (learner.loss_streak[symbol] * 0.1)) if learner.loss_streak[symbol] >= 3 else 1
             
             if dom_score > buy_threshold and rsi < 70 and not pump_risk:
-                qty = (0.05 * balances.get(quote_asset, 0) / price) * (1 / atr_factor)
+                qty = (0.05 * balances.get(quote_asset, 0) / price) * (1 / atr_factor) * leverage
                 qty = adjust_quantity(symbol, qty, price)
                 quote_price = price if quote_asset == "USDT" else price * float(client.get_symbol_ticker(symbol="BTCUSDT")['price'])
                 if qty and balances.get(quote_asset, 0) >= qty * price and qty * quote_price >= 10:
@@ -258,7 +267,7 @@ def demon_mode_trade():
                         learner.update(symbol, SIDE_BUY, qty, exec_price)
                         tracker.update(symbol, SIDE_BUY, qty, exec_price)
             elif (dom_score < sell_threshold or rsi > 70) and balances.get(base_asset, 0) > 0.001:
-                qty = min(0.8 * balances.get(base_asset, 0), balances.get(base_asset, 0)) * (1 / atr_factor)
+                qty = min(0.8 * balances.get(base_asset, 0), balances.get(base_asset, 0)) * (1 / atr_factor) * leverage
                 qty = adjust_quantity(symbol, qty, price)
                 quote_price = price if quote_asset == "USDT" else price * float(client.get_symbol_ticker(symbol="BTCUSDT")['price'])
                 if qty and balances.get(base_asset, 0) >= qty and qty * quote_price >= 10:
