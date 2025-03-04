@@ -46,8 +46,8 @@ class TradeLearner:
 
 class TradeTracker:
     def __init__(self):
-        self.total_pl = 0  # Total realized P/L in USDT
-        self.positions = {}  # {symbol: {qty, cost_basis_usdt}}
+        self.total_pl = 0
+        self.positions = {}
 
     def update(self, symbol, side, qty, price):
         quote = "USDT" if symbol.endswith("USDT") else "BTC"
@@ -302,7 +302,7 @@ def demon_mode_trade():
                         learner.update(symbol, SIDE_BUY, qty, exec_price)
                         tracker.update(symbol, SIDE_BUY, qty, exec_price)
             elif (dom_score < sell_threshold or rsi > 70) and balances.get(base_asset, 0) > 0.001 and random.random() < trade_freq:
-                qty = min(0.8 * balances.get(base_asset, 0), balances.get(base_asset, 0)) * (1 / atr_factor) * leverage * size_factor
+                qty = balances.get(base_asset, 0)  # Sell full position
                 qty = adjust_quantity(symbol, qty, price)
                 quote_price = price if quote_asset == "USDT" else price * float(client.get_symbol_ticker(symbol="BTCUSDT")['price'])
                 if qty and balances.get(base_asset, 0) >= qty and qty * quote_price >= 10:
