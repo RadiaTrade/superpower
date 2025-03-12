@@ -1,26 +1,43 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* Global Styles */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: url("/background.jpg") no-repeat center center fixed;
+  background-size: cover;
+  font-family: "Arial", sans-serif;
+  color: white;
+  backdrop-filter: brightness(30%);
+}
+
+/* Section Boxes */
+.section-container {
+  background: black;
+  border: 2px solid white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.2);
+  transition: transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
+}
+
+.section-container:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 25px rgba(0, 255, 255, 0.5);
+}
+
+/* Buttons */
+button {
+  background: linear-gradient(90deg, #007BFF, #00FFCC);
+  color: white;
+  border: 1px solid white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 16px;
+  transition: transform 0.3s ease-in-out;
+}
+
+button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
 }
