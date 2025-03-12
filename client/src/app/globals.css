@@ -1,43 +1,79 @@
+/* Import Orbitron Font - This MUST be at the very top */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Global Styles */
+/* Global Fixes */
 body {
-  background: url("/background.jpg") no-repeat center center fixed;
+  background: url("/background.jpg") no-repeat bottom center fixed;
   background-size: cover;
-  font-family: "Arial", sans-serif;
   color: white;
-  backdrop-filter: brightness(30%);
+  font-family: 'Arial', sans-serif;
 }
 
-/* Section Boxes */
-.section-container {
-  background: black;
-  border: 2px solid white;
-  padding: 20px;
-  border-radius: 12px;
-  box-shadow: 0 0 15px rgba(255, 255, 255, 0.2);
-  transition: transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
+/* Black Box Styling for Sections */
+.bg-black {
+  background-color: rgba(0, 0, 0, 0.85) !important;
+  border: 2px solid white !important;
+  border-radius: 20px !important;
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.3) !important;
+  padding: 25px !important;
+  margin-bottom: 30px !important;
 }
 
-.section-container:hover {
-  transform: scale(1.05);
-  box-shadow: 0 0 25px rgba(0, 255, 255, 0.5);
+/* Futuristic Heading Font */
+.font-orbitron {
+  font-family: 'Orbitron', sans-serif;
 }
 
-/* Buttons */
+/* Improve Button Styling */
 button {
-  background: linear-gradient(90deg, #007BFF, #00FFCC);
-  color: white;
-  border: 1px solid white;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-size: 16px;
-  transition: transform 0.3s ease-in-out;
+  background: linear-gradient(to right, #00aaff, #00ff99) !important;
+  color: white !important;
+  font-weight: bold !important;
+  border: 2px solid white !important;
+  padding: 14px 24px !important;
+  border-radius: 12px !important;
+  text-transform: uppercase;
+  transition: all 0.3s ease-in-out;
+  font-size: 1.1rem !important;
 }
 
+/* Button Hover Effects */
 button:hover {
-  transform: scale(1.05);
-  box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+  transform: scale(1.08);
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.6);
+}
+
+/* Fix Navigation Bar */
+.navbar {
+  display: flex;
+  justify-content: flex-start;
+  gap: 20px;
+  padding: 10px;
+  position: absolute;
+  top: 10px;
+  left: 20px;
+}
+
+/* Adjust Navigation Buttons */
+.nav-button {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+
+/* Home Icon */
+.home-icon {
+  width: 40px;
+  height: 40px;
+  filter: invert(1);
+  cursor: pointer;
+  transition: transform 0.2s ease-in-out;
+}
+
+.home-icon:hover {
+  transform: scale(1.1);
 }
