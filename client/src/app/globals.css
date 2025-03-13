@@ -28,23 +28,50 @@ body {
   font-family: 'Orbitron', sans-serif;
 }
 
-/* Improve Button Styling */
+/* ✅ General Button Styling - FORCES WHITE BG + BLACK BORDER */
 button {
-  background: linear-gradient(to right, #00aaff, #00ff99) !important;
-  color: white !important;
-  font-weight: bold !important;
-  border: 2px solid white !important;
-  padding: 14px 24px !important;
-  border-radius: 12px !important;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  font-family: 'Orbitron', sans-serif;
+  font-weight: bold;
   text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 12px 24px;
+  border-radius: 8px;
+  border: 3px solid black !important; /* ✅ Force black outline */
+  background-color: white !important; /* ✅ Force white background */
+  color: black !important; /* ✅ Force black text */
   transition: all 0.3s ease-in-out;
-  font-size: 1.1rem !important;
+  cursor: pointer;
 }
 
-/* Button Hover Effects */
+/* ✅ Hover Effects */
 button:hover {
-  transform: scale(1.08);
-  box-shadow: 0 0 15px rgba(0, 255, 255, 0.6);
+  background: black !important;
+  color: white !important;
+  border-color: white !important;
+}
+
+/* ✅ Fix Home, Start Trading, Stop Trading Buttons */
+.trading-button {
+  width: 180px;
+  border: 3px solid black !important;
+  background: white !important;
+  color: black !important;
+  padding: 14px 24px;
+  font-size: 1rem;
+  text-transform: uppercase;
+  font-weight: bold;
+  transition: all 0.3s ease-in-out;
+  cursor: pointer;
+}
+
+/* ✅ Hover Effect for Trading Buttons */
+.trading-button:hover {
+  background: black !important;
+  color: white !important;
+  border-color: white !important;
 }
 
 /* Fix Navigation Bar */

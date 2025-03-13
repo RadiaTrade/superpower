@@ -9,12 +9,11 @@
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
-    "noEmit": true,
+    "noEmit": false,
     "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "node",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "resolveJsonModule": true,
-    "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
     "baseUrl": "src",
@@ -27,7 +26,11 @@
       {
         "name": "next"
       }
-    ]
+    ],
+    "isolatedModules": true
+  },
+  "ts-node": {
+    "esm": true
   },
   "include": [
     "next-env.d.ts",
@@ -36,6 +39,7 @@
     ".next/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "dist"
   ]
 }
